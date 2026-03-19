@@ -487,3 +487,95 @@ class TestErrorHandling:
 
         run = engine.run({"x": 42})
         assert run.state["x"] == 42
+
+    def test_handler_returning_non_dict_fails(self):
+        g = Graph(name="test")
+        g.add_node("a", handler="h.a")
+        g.set_entry("a")
+        g.set_terminal("a")
+
+        engine = GraphEngine(g)
+        engine.register_handler("h.a", lambda s: "not a dict")  # type: ignore[arg-type]
+
+        run = engine.run()
+        assert run.status == RunStatus.FAILED
+        assert "must return dict" in run.history[0].output["error"]
+
+
+class TestTraversalCountsPersistence:
+    def test_resume_preserves_traversal_counts(self):
+        """Cycle limits should survive across resume boundaries."""
+        g = Graph(
+            name="test",
+            state_schema=StateSchema(fields={
+                "count": FieldSpec(field_type="int", default=0),
+            }),
+        )
+        g.add_node("work", handler="h.work")
+        g.add_node("approve", handler="h.noop", node_type=NodeType.APPROVAL)
+        g.add_edge("work", "approve")
+        g.add_edge("approve", "work", max_traversals=2)
+        g.set_entry("work")
+        g.set_terminal("work")
+        g.set_terminal("approve")
+
+        call_count = 0
+
+        def work_handler(state):
+            nonlocal call_count
+            call_count += 1
+            return {"count": call_count}
+
+        engine = GraphEngine(g)
+        engine.register_handler("h.work", work_handler)
+        engine.register_handler("h.noop", _make_handler({}))
+
+        # First run: work -> approve (pauses)
+        run = engine.run()
+        assert run.status == RunStatus.AWAITING_APPROVAL
+
+        # First resume: approve -> work -> approve (pauses)
+        run = engine.resume(
+            run_id=run.run_id,
+            state=run.state,
+            history=run.history,
+            from_node="approve",
+            traversal_counts=run.traversal_counts,
+        )
+        assert run.status == RunStatus.AWAITING_APPROVAL
+
+        # Second resume: approve -> work -> approve (pauses)
+        run = engine.resume(
+            run_id=run.run_id,
+            state=run.state,
+            history=run.history,
+            from_node="approve",
+            traversal_counts=run.traversal_counts,
+        )
+        assert run.status == RunStatus.AWAITING_APPROVAL
+
+        # Third resume: cycle limit reached, should complete
+        run = engine.resume(
+            run_id=run.run_id,
+            state=run.state,
+            history=run.history,
+            from_node="approve",
+            traversal_counts=run.traversal_counts,
+        )
+        assert run.status == RunStatus.COMPLETED
+
+    def test_run_result_includes_traversal_counts(self):
+        g = Graph(name="test")
+        g.add_node("a", handler="h.a")
+        g.add_node("b", handler="h.b")
+        g.add_edge("a", "b")
+        g.set_entry("a")
+        g.set_terminal("b")
+
+        engine = GraphEngine(g)
+        engine.register_handler("h.a", _make_handler({}))
+        engine.register_handler("h.b", _make_handler({}))
+
+        run = engine.run()
+        assert run.status == RunStatus.COMPLETED
+        assert len(run.traversal_counts) > 0

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -25,6 +25,8 @@ class ResultStatus(StrEnum):
 class NodeResult:
     """Result of executing a single node."""
 
+    __slots__ = ("node_id", "status", "output", "started_at", "completed_at")
+
     def __init__(
         self,
         node_id: str,
@@ -43,9 +45,9 @@ class NodeResult:
 class RunAccounting:
     """Tracks resource consumption during a run."""
 
-    def __init__(self, budget: RunBudget) -> None:
+    def __init__(self, budget: RunBudget, nodes_already: int = 0) -> None:
         self.budget = budget
-        self.nodes_executed = 0
+        self.nodes_executed = nodes_already
         self.total_tokens = 0
         self.total_cost_usd = 0.0
         self.started_at = datetime.now(UTC)
@@ -80,11 +82,7 @@ class RunStatus(StrEnum):
     AWAITING_APPROVAL = "awaiting_approval"
 
 
-# Handler type: takes state dict, returns updated state dict
 NodeHandler = Callable[[dict[str, Any]], dict[str, Any]]
-AsyncNodeHandler = Callable[[dict[str, Any]], Any]  # Coroutine
-
-# Hook type: takes state dict and node spec, returns state dict (or raises to abort)
 HookHandler = Callable[[dict[str, Any], NodeSpec], dict[str, Any]]
 
 
@@ -100,9 +98,8 @@ class GraphEngine:
         self._pre_hooks: list[HookHandler] = []
         self._post_hooks: list[HookHandler] = []
 
-    def register_handler(self, handler_path: str, handler: NodeHandler) -> None:
-        """Register a handler function for a handler path."""
-        self._handlers[handler_path] = handler
+    def register_handler(self, handler_path: str, fn: NodeHandler) -> None:
+        self._handlers[handler_path] = fn
 
     def add_pre_hook(self, hook: HookHandler) -> None:
         self._pre_hooks.append(hook)
@@ -111,73 +108,20 @@ class GraphEngine:
         self._post_hooks.append(hook)
 
     def run(self, initial_state: dict[str, Any] | None = None) -> RunResult:
-        """Execute the graph synchronously. Returns final state and history."""
+        """Execute the graph synchronously."""
         run_id = str(uuid.uuid4())
         state = self.graph.state_schema.create_initial_state()
         if initial_state:
             state.update(initial_state)
 
-        accounting = RunAccounting(self.graph.run_budget)
-        history: list[NodeResult] = []
-        traversal_counts: dict[str, int] = {}
-
         assert self.graph.entry is not None
-        current_node_id: str | None = self.graph.entry
-
-        while current_node_id is not None:
-            node = self.graph.nodes[current_node_id]
-
-            # Check budget
-            budget_error = accounting.check_budget()
-            if budget_error:
-                return RunResult(
-                    run_id=run_id,
-                    status=RunStatus.BUDGET_EXCEEDED,
-                    state=state,
-                    history=history,
-                    error=budget_error,
-                )
-
-            # Handle approval nodes
-            if node.node_type == NodeType.APPROVAL:
-                return RunResult(
-                    run_id=run_id,
-                    status=RunStatus.AWAITING_APPROVAL,
-                    state=state,
-                    history=history,
-                    paused_at_node=current_node_id,
-                )
-
-            # Execute node
-            result = self._execute_node(node, state)
-            history.append(result)
-            accounting.record_node()
-
-            if result.status == ResultStatus.FAILURE:
-                return RunResult(
-                    run_id=run_id,
-                    status=RunStatus.FAILED,
-                    state=state,
-                    history=history,
-                    error=f"Node '{current_node_id}' failed",
-                )
-
-            # Apply output to state
-            if result.output:
-                for key, value in result.output.items():
-                    if node.output_fields is None or key in node.output_fields:
-                        state[key] = value
-
-            # Find next node
-            current_node_id = self._resolve_next_node(
-                current_node_id, state, traversal_counts
-            )
-
-        return RunResult(
+        return self._execute_loop(
             run_id=run_id,
-            status=RunStatus.COMPLETED,
             state=state,
-            history=history,
+            history=[],
+            start_node=self.graph.entry,
+            traversal_counts={},
+            nodes_already=0,
         )
 
     def resume(
@@ -187,6 +131,7 @@ class GraphEngine:
         history: list[NodeResult],
         from_node: str,
         approved: bool = True,
+        traversal_counts: dict[str, int] | None = None,
     ) -> RunResult:
         """Resume a paused run (e.g., after HITL approval)."""
         if not approved:
@@ -196,27 +141,55 @@ class GraphEngine:
                 state=state,
                 history=history,
                 error=f"Approval rejected at node '{from_node}'",
+                traversal_counts=traversal_counts or {},
             )
 
-        # Find next node after the approval gate
-        traversal_counts: dict[str, int] = {}
-        next_node = self._resolve_next_node(from_node, state, traversal_counts)
+        counts = dict(traversal_counts) if traversal_counts else {}
+        next_node = self._resolve_next(from_node, state, counts)
 
-        accounting = RunAccounting(self.graph.run_budget)
-        accounting.nodes_executed = len(history)
+        if next_node is None:
+            return RunResult(
+                run_id=run_id,
+                status=RunStatus.COMPLETED,
+                state=state,
+                history=history,
+                traversal_counts=counts,
+            )
 
-        current_node_id = next_node
-        while current_node_id is not None:
-            node = self.graph.nodes[current_node_id]
+        return self._execute_loop(
+            run_id=run_id,
+            state=state,
+            history=history,
+            start_node=next_node,
+            traversal_counts=counts,
+            nodes_already=len(history),
+        )
 
-            budget_error = accounting.check_budget()
-            if budget_error:
+    def _execute_loop(
+        self,
+        run_id: str,
+        state: dict[str, Any],
+        history: list[NodeResult],
+        start_node: str,
+        traversal_counts: dict[str, int],
+        nodes_already: int,
+    ) -> RunResult:
+        """Core execution loop shared by run() and resume()."""
+        accounting = RunAccounting(self.graph.run_budget, nodes_already)
+        current: str | None = start_node
+
+        while current is not None:
+            node = self.graph.nodes[current]
+
+            budget_err = accounting.check_budget()
+            if budget_err:
                 return RunResult(
                     run_id=run_id,
                     status=RunStatus.BUDGET_EXCEEDED,
                     state=state,
                     history=history,
-                    error=budget_error,
+                    error=budget_err,
+                    traversal_counts=traversal_counts,
                 )
 
             if node.node_type == NodeType.APPROVAL:
@@ -225,7 +198,8 @@ class GraphEngine:
                     status=RunStatus.AWAITING_APPROVAL,
                     state=state,
                     history=history,
-                    paused_at_node=current_node_id,
+                    paused_at_node=current,
+                    traversal_counts=traversal_counts,
                 )
 
             result = self._execute_node(node, state)
@@ -238,79 +212,70 @@ class GraphEngine:
                     status=RunStatus.FAILED,
                     state=state,
                     history=history,
-                    error=f"Node '{current_node_id}' failed",
+                    error=f"Node '{current}' failed",
+                    traversal_counts=traversal_counts,
                 )
 
-            if result.output:
-                for key, value in result.output.items():
-                    if node.output_fields is None or key in node.output_fields:
-                        state[key] = value
+            self._apply_output(node, state, result.output)
 
-            current_node_id = self._resolve_next_node(
-                current_node_id, state, traversal_counts
-            )
+            current = self._resolve_next(current, state, traversal_counts)
 
         return RunResult(
             run_id=run_id,
             status=RunStatus.COMPLETED,
             state=state,
             history=history,
+            traversal_counts=traversal_counts,
         )
 
-    def _execute_node(self, node: NodeSpec, state: dict[str, Any]) -> NodeResult:
+    @staticmethod
+    def _apply_output(
+        node: NodeSpec, state: dict[str, Any], output: dict[str, Any]
+    ) -> None:
+        """Apply handler output to state, respecting output_fields."""
+        for key, value in output.items():
+            if node.output_fields is None or key in node.output_fields:
+                state[key] = value
+
+    def _execute_node(
+        self, node: NodeSpec, state: dict[str, Any]
+    ) -> NodeResult:
         """Execute a single node with pre/post hooks."""
         started_at = datetime.now(UTC)
 
-        # Run pre-hooks
         hook_state = deepcopy(state)
         for hook in self._pre_hooks:
             try:
                 hook_state = hook(hook_state, node)
             except Exception as e:
-                return NodeResult(
-                    node_id=node.id,
-                    status=ResultStatus.FAILURE,
-                    output={"error": f"Pre-hook failed: {e}"},
-                    started_at=started_at,
-                    completed_at=datetime.now(UTC),
-                )
+                return self._fail(node.id, f"Pre-hook failed: {e}", started_at)
 
-        # Project state if input_projection is set
-        if node.input_projection:
-            projected = {k: hook_state[k] for k in node.input_projection if k in hook_state}
-        else:
-            projected = hook_state
+        projected = self._project_input(node, hook_state)
 
-        # Get handler
         handler = self._handlers.get(node.handler)
         if handler is None:
-            return NodeResult(
-                node_id=node.id,
-                status=ResultStatus.FAILURE,
-                output={"error": f"No handler registered for '{node.handler}'"},
-                started_at=started_at,
-                completed_at=datetime.now(UTC),
+            return self._fail(
+                node.id, f"No handler registered for '{node.handler}'", started_at
             )
 
-        # Execute handler
         try:
             output = handler(projected)
         except Exception as e:
-            return NodeResult(
-                node_id=node.id,
-                status=ResultStatus.FAILURE,
-                output={"error": str(e)},
-                started_at=started_at,
-                completed_at=datetime.now(UTC),
+            return self._fail(node.id, str(e), started_at)
+
+        if not isinstance(output, Mapping):
+            return self._fail(
+                node.id,
+                f"Handler must return dict, got {type(output).__name__}",
+                started_at,
             )
 
+        output = dict(output)
         completed_at = datetime.now(UTC)
 
-        # Run post-hooks
         for hook in self._post_hooks:
             try:
-                state_with_output = {**state, **output}
-                hook(state_with_output, node)
+                hook({**state, **output}, node)
             except Exception as e:
                 return NodeResult(
                     node_id=node.id,
@@ -328,7 +293,25 @@ class GraphEngine:
             completed_at=completed_at,
         )
 
-    def _resolve_next_node(
+    @staticmethod
+    def _project_input(
+        node: NodeSpec, state: dict[str, Any]
+    ) -> dict[str, Any]:
+        if node.input_projection:
+            return {k: state[k] for k in node.input_projection if k in state}
+        return state
+
+    @staticmethod
+    def _fail(node_id: str, error: str, started_at: datetime) -> NodeResult:
+        return NodeResult(
+            node_id=node_id,
+            status=ResultStatus.FAILURE,
+            output={"error": error},
+            started_at=started_at,
+            completed_at=datetime.now(UTC),
+        )
+
+    def _resolve_next(
         self,
         current: str,
         state: dict[str, Any],
@@ -336,40 +319,42 @@ class GraphEngine:
     ) -> str | None:
         """Determine the next node based on outgoing edges and state."""
         edges = self.graph.outgoing_edges(current)
-
-        # Terminal with no outgoing edges = done
         if not edges:
             return None
 
-        # Try to follow an outgoing edge
         for edge in edges:
-            edge_key = f"{edge.source}->{edge.target}"
+            edge_key = (edge.source, edge.target)
 
-            # Check cycle limits
-            if edge.max_traversals is not None:
-                count = traversal_counts.get(edge_key, 0)
-                if count >= edge.max_traversals:
-                    continue
+            if (
+                edge.max_traversals is not None
+                and traversal_counts.get(edge_key, 0) >= edge.max_traversals
+            ):
+                continue
 
+            matched = False
             match edge.edge_type:
                 case EdgeType.STATIC:
-                    traversal_counts[edge_key] = traversal_counts.get(edge_key, 0) + 1
-                    return edge.target
+                    matched = True
                 case EdgeType.CONDITIONAL:
                     if edge.condition and evaluate_condition(edge.condition, state):
-                        traversal_counts[edge_key] = traversal_counts.get(edge_key, 0) + 1
-                        return edge.target
+                        matched = True
                 case EdgeType.DYNAMIC:
-                    traversal_counts[edge_key] = traversal_counts.get(edge_key, 0) + 1
-                    return edge.target
+                    matched = True
 
-        # No edge was followed — if this is a terminal, that's a clean stop
-        # If not a terminal, we're stuck (no valid transitions)
+            if matched:
+                traversal_counts[edge_key] = traversal_counts.get(edge_key, 0) + 1
+                return edge.target
+
         return None
 
 
 class RunResult:
     """Result of a graph execution."""
+
+    __slots__ = (
+        "run_id", "status", "state", "history",
+        "error", "paused_at_node", "traversal_counts",
+    )
 
     def __init__(
         self,
@@ -379,6 +364,7 @@ class RunResult:
         history: list[NodeResult],
         error: str | None = None,
         paused_at_node: str | None = None,
+        traversal_counts: dict[Any, int] | None = None,
     ) -> None:
         self.run_id = run_id
         self.status = status
@@ -386,3 +372,4 @@ class RunResult:
         self.history = history
         self.error = error
         self.paused_at_node = paused_at_node
+        self.traversal_counts = traversal_counts or {}
