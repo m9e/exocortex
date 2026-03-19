@@ -151,14 +151,16 @@ class Graph:
         protected: bool = False,
         max_traversals: int | None = None,
     ) -> None:
-        self._edges.append(EdgeSpec(
-            source=source,
-            target=target,
-            edge_type=edge_type,
-            condition=condition,
-            protected=protected,
-            max_traversals=max_traversals,
-        ))
+        self._edges.append(
+            EdgeSpec(
+                source=source,
+                target=target,
+                edge_type=edge_type,
+                condition=condition,
+                protected=protected,
+                max_traversals=max_traversals,
+            )
+        )
 
     def set_entry(self, node_id: str) -> None:
         self._entry = node_id
@@ -210,9 +212,7 @@ class Graph:
             if edge.target not in self._nodes:
                 errors.append(f"Edge target '{edge.target}' not in nodes")
             if edge.edge_type == EdgeType.CONDITIONAL and edge.condition is None:
-                errors.append(
-                    f"Conditional edge {edge.source}->{edge.target} has no condition"
-                )
+                errors.append(f"Conditional edge {edge.source}->{edge.target} has no condition")
 
         # Check back-edges have max_traversals
         back_edges = self._find_back_edges()

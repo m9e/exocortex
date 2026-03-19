@@ -9,6 +9,7 @@ from exocortex.core.graph import ConditionOp, ConditionSpec
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _cond(field: str, op: ConditionOp, value: object = None) -> ConditionSpec:
     """Shorthand for building a ConditionSpec."""
     return ConditionSpec(field=field, operator=op, value=value)
@@ -17,6 +18,7 @@ def _cond(field: str, op: ConditionOp, value: object = None) -> ConditionSpec:
 # ---------------------------------------------------------------------------
 # EQ / NEQ
 # ---------------------------------------------------------------------------
+
 
 class TestEq:
     def test_equal_strings(self) -> None:
@@ -50,6 +52,7 @@ class TestNeq:
 # ---------------------------------------------------------------------------
 # GT / GTE / LT / LTE
 # ---------------------------------------------------------------------------
+
 
 class TestGt:
     def test_greater(self) -> None:
@@ -102,6 +105,7 @@ class TestLte:
 # IN / NOT_IN
 # ---------------------------------------------------------------------------
 
+
 class TestIn:
     def test_value_in_list(self) -> None:
         assert evaluate_condition(
@@ -151,6 +155,7 @@ class TestNotIn:
 # ---------------------------------------------------------------------------
 # IS_TRUE / IS_FALSE
 # ---------------------------------------------------------------------------
+
 
 class TestIsTrue:
     def test_true(self) -> None:
@@ -205,6 +210,7 @@ class TestIsFalse:
 # EXISTS
 # ---------------------------------------------------------------------------
 
+
 class TestExists:
     def test_field_exists(self) -> None:
         assert evaluate_condition(_cond("key", ConditionOp.EXISTS), {"key": "value"})
@@ -231,6 +237,7 @@ class TestExists:
 # ---------------------------------------------------------------------------
 # Nested field access (dot notation)
 # ---------------------------------------------------------------------------
+
 
 class TestNestedFieldAccess:
     def test_one_level_deep(self) -> None:
@@ -273,6 +280,7 @@ class TestNestedFieldAccess:
 # Missing fields (non-EXISTS operators)
 # ---------------------------------------------------------------------------
 
+
 class TestMissingFields:
     def test_eq_missing_field(self) -> None:
         assert not evaluate_condition(_cond("missing", ConditionOp.EQ, "value"), {})
@@ -309,6 +317,7 @@ class TestMissingFields:
 # Type mismatches
 # ---------------------------------------------------------------------------
 
+
 class TestTypeMismatches:
     def test_gt_string_vs_int(self) -> None:
         """Comparing incompatible types returns False, not an error."""
@@ -341,6 +350,7 @@ class TestTypeMismatches:
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_none_eq_none(self) -> None:

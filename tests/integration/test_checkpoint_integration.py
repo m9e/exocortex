@@ -21,9 +21,11 @@ class TestCheckpointIntegration:
         try:
             g = Graph(
                 name="test-graph",
-                state_schema=StateSchema(fields={
-                    "step": FieldSpec(field_type="int", default=0),
-                }),
+                state_schema=StateSchema(
+                    fields={
+                        "step": FieldSpec(field_type="int", default=0),
+                    }
+                ),
             )
             g.add_node("a", handler="h.a")
             g.add_node("b", handler="h.b")
@@ -65,9 +67,11 @@ class TestCheckpointIntegration:
         try:
             g = Graph(
                 name="approval-graph",
-                state_schema=StateSchema(fields={
-                    "data": FieldSpec(field_type="str", default=""),
-                }),
+                state_schema=StateSchema(
+                    fields={
+                        "data": FieldSpec(field_type="str", default=""),
+                    }
+                ),
             )
             g.add_node("prepare", handler="h.prep")
             g.add_node("approve", handler="h.noop", node_type=NodeType.APPROVAL)

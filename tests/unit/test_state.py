@@ -14,50 +14,62 @@ from exocortex.core.state import (
 
 class TestStateSchema:
     def test_create_initial_state(self):
-        schema = StateSchema(fields={
-            "query": FieldSpec(field_type="str", default=""),
-            "results": FieldSpec(field_type="list", default=[]),
-            "score": FieldSpec(field_type="float", default=0.0),
-        })
+        schema = StateSchema(
+            fields={
+                "query": FieldSpec(field_type="str", default=""),
+                "results": FieldSpec(field_type="list", default=[]),
+                "score": FieldSpec(field_type="float", default=0.0),
+            }
+        )
         state = schema.create_initial_state()
         assert state == {"query": "", "results": [], "score": 0.0}
 
     def test_initial_state_deep_copies_defaults(self):
-        schema = StateSchema(fields={
-            "items": FieldSpec(field_type="list", default=[]),
-        })
+        schema = StateSchema(
+            fields={
+                "items": FieldSpec(field_type="list", default=[]),
+            }
+        )
         s1 = schema.create_initial_state()
         s2 = schema.create_initial_state()
         s1["items"].append("x")
         assert s2["items"] == []
 
     def test_validate_state_valid(self):
-        schema = StateSchema(fields={
-            "query": FieldSpec(field_type="str", default=""),
-        })
+        schema = StateSchema(
+            fields={
+                "query": FieldSpec(field_type="str", default=""),
+            }
+        )
         errors = schema.validate_state({"query": "hello"})
         assert errors == []
 
     def test_validate_state_missing_required(self):
-        schema = StateSchema(fields={
-            "query": FieldSpec(field_type="str"),  # No default = required
-        })
+        schema = StateSchema(
+            fields={
+                "query": FieldSpec(field_type="str"),  # No default = required
+            }
+        )
         errors = schema.validate_state({})
         assert len(errors) == 1
         assert "Missing required field" in errors[0]
 
     def test_validate_state_unknown_field(self):
-        schema = StateSchema(fields={
-            "query": FieldSpec(field_type="str", default=""),
-        })
+        schema = StateSchema(
+            fields={
+                "query": FieldSpec(field_type="str", default=""),
+            }
+        )
         errors = schema.validate_state({"query": "hi", "extra": "bad"})
         assert len(errors) == 1
         assert "Unknown field" in errors[0]
 
     def test_validate_state_ignores_internal_fields(self):
-        schema = StateSchema(fields={
-            "query": FieldSpec(field_type="str", default=""),
-        })
+        schema = StateSchema(
+            fields={
+                "query": FieldSpec(field_type="str", default=""),
+            }
+        )
         errors = schema.validate_state({"query": "hi", "_iteration_count": 3})
         assert errors == []
 
@@ -100,10 +112,12 @@ class TestApplyReducer:
 
 class TestMergeBranchStates:
     def _schema(self, **field_reducers: ReducerType | None) -> StateSchema:
-        return StateSchema(fields={
-            name: FieldSpec(field_type="any", default=None, reducer=reducer)
-            for name, reducer in field_reducers.items()
-        })
+        return StateSchema(
+            fields={
+                name: FieldSpec(field_type="any", default=None, reducer=reducer)
+                for name, reducer in field_reducers.items()
+            }
+        )
 
     def test_empty_branches(self):
         schema = self._schema(x=None)

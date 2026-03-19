@@ -112,8 +112,12 @@ class TestGraphValidation:
         g = Graph(name="test")
         g.add_node("a", handler="test.a")
         g.add_node("b", handler="test.b")
-        g.add_edge("a", "b", EdgeType.CONDITIONAL,
-                   condition=ConditionSpec(field="done", operator=ConditionOp.IS_TRUE))
+        g.add_edge(
+            "a",
+            "b",
+            EdgeType.CONDITIONAL,
+            condition=ConditionSpec(field="done", operator=ConditionOp.IS_TRUE),
+        )
         g.set_entry("a")
         g.set_terminal("b")
         errors = g.validate()
@@ -166,10 +170,12 @@ class TestCycleDetection:
 
 class TestGraphWithSchema:
     def test_graph_with_state_schema(self):
-        schema = StateSchema(fields={
-            "query": FieldSpec(field_type="str", default=""),
-            "results": FieldSpec(field_type="list", default=[], reducer=ReducerType.APPEND),
-        })
+        schema = StateSchema(
+            fields={
+                "query": FieldSpec(field_type="str", default=""),
+                "results": FieldSpec(field_type="list", default=[], reducer=ReducerType.APPEND),
+            }
+        )
         g = Graph(name="test", state_schema=schema)
         assert g.state_schema.fields["query"].field_type == "str"
 

@@ -16,15 +16,19 @@ from exocortex.core.state import FieldSpec, StateSchema
 
 def _make_handler(output: dict[str, Any]):
     """Create a simple handler that returns fixed output."""
+
     def handler(state: dict[str, Any]) -> dict[str, Any]:
         return output
+
     return handler
 
 
 def _make_transform_handler(transform):
     """Create a handler that transforms state."""
+
     def handler(state: dict[str, Any]) -> dict[str, Any]:
         return transform(state)
+
     return handler
 
 
@@ -32,9 +36,11 @@ class TestLinearExecution:
     def test_single_node(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "result": FieldSpec(field_type="str", default=""),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "result": FieldSpec(field_type="str", default=""),
+                }
+            ),
         )
         g.add_node("a", handler="h.a")
         g.set_entry("a")
@@ -51,9 +57,11 @@ class TestLinearExecution:
     def test_two_nodes_linear(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "step": FieldSpec(field_type="int", default=0),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "step": FieldSpec(field_type="int", default=0),
+                }
+            ),
         )
         g.add_node("a", handler="h.a")
         g.add_node("b", handler="h.b")
@@ -73,9 +81,11 @@ class TestLinearExecution:
     def test_three_node_pipeline(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "value": FieldSpec(field_type="int", default=0),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "value": FieldSpec(field_type="int", default=0),
+                }
+            ),
         )
         g.add_node("a", handler="h.inc")
         g.add_node("b", handler="h.inc")
@@ -100,15 +110,21 @@ class TestConditionalEdges:
     def test_condition_true_follows_edge(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "score": FieldSpec(field_type="float", default=0.0),
-                "result": FieldSpec(field_type="str", default=""),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "score": FieldSpec(field_type="float", default=0.0),
+                    "result": FieldSpec(field_type="str", default=""),
+                }
+            ),
         )
         g.add_node("check", handler="h.check")
         g.add_node("good", handler="h.good")
-        g.add_edge("check", "good", EdgeType.CONDITIONAL,
-                   condition=ConditionSpec(field="score", operator=ConditionOp.GTE, value=0.7))
+        g.add_edge(
+            "check",
+            "good",
+            EdgeType.CONDITIONAL,
+            condition=ConditionSpec(field="score", operator=ConditionOp.GTE, value=0.7),
+        )
         g.set_entry("check")
         g.set_terminal("good")
 
@@ -123,15 +139,21 @@ class TestConditionalEdges:
     def test_condition_false_skips_edge(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "score": FieldSpec(field_type="float", default=0.0),
-                "result": FieldSpec(field_type="str", default="pending"),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "score": FieldSpec(field_type="float", default=0.0),
+                    "result": FieldSpec(field_type="str", default="pending"),
+                }
+            ),
         )
         g.add_node("check", handler="h.check")
         g.add_node("good", handler="h.good")
-        g.add_edge("check", "good", EdgeType.CONDITIONAL,
-                   condition=ConditionSpec(field="score", operator=ConditionOp.GTE, value=0.7))
+        g.add_edge(
+            "check",
+            "good",
+            EdgeType.CONDITIONAL,
+            condition=ConditionSpec(field="score", operator=ConditionOp.GTE, value=0.7),
+        )
         g.set_entry("check")
         g.set_terminal("check")  # check is also terminal (no path taken)
         g.set_terminal("good")
@@ -150,9 +172,11 @@ class TestCycleExecution:
     def test_cycle_with_limit(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "count": FieldSpec(field_type="int", default=0),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "count": FieldSpec(field_type="int", default=0),
+                }
+            ),
         )
         g.add_node("inc", handler="h.inc")
         g.add_edge("inc", "inc", max_traversals=3)  # Self-loop, max 3
@@ -174,17 +198,23 @@ class TestCycleExecution:
     def test_cycle_between_two_nodes(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "count": FieldSpec(field_type="int", default=0),
-                "done": FieldSpec(field_type="bool", default=False),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "count": FieldSpec(field_type="int", default=0),
+                    "done": FieldSpec(field_type="bool", default=False),
+                }
+            ),
         )
         g.add_node("work", handler="h.work")
         g.add_node("check", handler="h.check")
         g.add_edge("work", "check")
-        g.add_edge("check", "work", EdgeType.CONDITIONAL,
-                   condition=ConditionSpec(field="done", operator=ConditionOp.IS_FALSE),
-                   max_traversals=5)
+        g.add_edge(
+            "check",
+            "work",
+            EdgeType.CONDITIONAL,
+            condition=ConditionSpec(field="done", operator=ConditionOp.IS_FALSE),
+            max_traversals=5,
+        )
         g.set_entry("work")
         g.set_terminal("check")
 
@@ -212,9 +242,11 @@ class TestBudgetEnforcement:
     def test_node_budget_exceeded(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "count": FieldSpec(field_type="int", default=0),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "count": FieldSpec(field_type="int", default=0),
+                }
+            ),
             run_budget=RunBudget(max_nodes=2),
         )
         g.add_node("inc", handler="h.inc")
@@ -315,9 +347,11 @@ class TestApprovalNode:
     def test_approval_pauses_execution(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "data": FieldSpec(field_type="str", default=""),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "data": FieldSpec(field_type="str", default=""),
+                }
+            ),
         )
         g.add_node("prepare", handler="h.prepare")
         g.add_node("approve", handler="h.noop", node_type=NodeType.APPROVAL)
@@ -340,9 +374,11 @@ class TestApprovalNode:
     def test_resume_after_approval(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "data": FieldSpec(field_type="str", default=""),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "data": FieldSpec(field_type="str", default=""),
+                }
+            ),
         )
         g.add_node("prepare", handler="h.prepare")
         g.add_node("approve", handler="h.noop", node_type=NodeType.APPROVAL)
@@ -397,13 +433,14 @@ class TestStateProjection:
     def test_input_projection_filters_state(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "query": FieldSpec(field_type="str", default=""),
-                "secret": FieldSpec(field_type="str", default="hidden"),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "query": FieldSpec(field_type="str", default=""),
+                    "secret": FieldSpec(field_type="str", default="hidden"),
+                }
+            ),
         )
-        g.add_node("a", handler="h.a",
-                   input_projection=["query"])  # Can't see 'secret'
+        g.add_node("a", handler="h.a", input_projection=["query"])  # Can't see 'secret'
         g.set_entry("a")
         g.set_terminal("a")
 
@@ -423,10 +460,12 @@ class TestStateProjection:
     def test_output_fields_restricts_writes(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "allowed": FieldSpec(field_type="str", default=""),
-                "forbidden": FieldSpec(field_type="str", default="safe"),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "allowed": FieldSpec(field_type="str", default=""),
+                    "forbidden": FieldSpec(field_type="str", default="safe"),
+                }
+            ),
         )
         g.add_node("a", handler="h.a", output_fields=["allowed"])
         g.set_entry("a")
@@ -474,9 +513,11 @@ class TestErrorHandling:
     def test_initial_state_override(self):
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "x": FieldSpec(field_type="int", default=0),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "x": FieldSpec(field_type="int", default=0),
+                }
+            ),
         )
         g.add_node("a", handler="h.a")
         g.set_entry("a")
@@ -507,9 +548,11 @@ class TestTraversalCountsPersistence:
         """Cycle limits should survive across resume boundaries."""
         g = Graph(
             name="test",
-            state_schema=StateSchema(fields={
-                "count": FieldSpec(field_type="int", default=0),
-            }),
+            state_schema=StateSchema(
+                fields={
+                    "count": FieldSpec(field_type="int", default=0),
+                }
+            ),
         )
         g.add_node("work", handler="h.work")
         g.add_node("approve", handler="h.noop", node_type=NodeType.APPROVAL)

@@ -61,9 +61,7 @@ def _build_command(delegation: CLIDelegation) -> list[str]:
 # -- Async execution --
 
 
-async def _read_stream(
-    stream: asyncio.StreamReader | None, limit: int
-) -> str:
+async def _read_stream(stream: asyncio.StreamReader | None, limit: int) -> str:
     """Read from an async stream up to *limit* bytes."""
     if stream is None:
         return ""

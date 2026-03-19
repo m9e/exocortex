@@ -61,8 +61,7 @@ class RunAccounting:
             return f"Token budget exceeded: {self.total_tokens}/{self.budget.max_total_tokens}"
         if self.total_cost_usd >= self.budget.max_cost_usd:
             return (
-                f"Cost budget exceeded: "
-                f"${self.total_cost_usd:.2f}/${self.budget.max_cost_usd:.2f}"
+                f"Cost budget exceeded: ${self.total_cost_usd:.2f}/${self.budget.max_cost_usd:.2f}"
             )
         elapsed = (datetime.now(UTC) - self.started_at).total_seconds()
         if elapsed >= self.budget.max_wall_seconds:
@@ -215,17 +214,28 @@ class GraphEngine:
             budget_err = accounting.check_budget()
             if budget_err:
                 return self._result(
-                    run_id, RunStatus.BUDGET_EXCEEDED, state,
-                    history, traversal_counts, error=budget_err,
+                    run_id,
+                    RunStatus.BUDGET_EXCEEDED,
+                    state,
+                    history,
+                    traversal_counts,
+                    error=budget_err,
                 )
 
             if node.node_type == NodeType.APPROVAL:
                 await self._save_checkpoint(
-                    run_id, current, state, last_checkpoint_id,
+                    run_id,
+                    current,
+                    state,
+                    last_checkpoint_id,
                 )
                 return self._result(
-                    run_id, RunStatus.AWAITING_APPROVAL, state,
-                    history, traversal_counts, paused_at_node=current,
+                    run_id,
+                    RunStatus.AWAITING_APPROVAL,
+                    state,
+                    history,
+                    traversal_counts,
+                    paused_at_node=current,
                 )
 
             result = self._execute_node(node, state)
@@ -234,21 +244,32 @@ class GraphEngine:
 
             if result.status == ResultStatus.FAILURE:
                 return self._result(
-                    run_id, RunStatus.FAILED, state, history,
-                    traversal_counts, error=f"Node '{current}' failed",
+                    run_id,
+                    RunStatus.FAILED,
+                    state,
+                    history,
+                    traversal_counts,
+                    error=f"Node '{current}' failed",
                 )
 
             self._apply_output(node, state, result.output)
 
             # Checkpoint after each successful node
             last_checkpoint_id = await self._save_checkpoint(
-                run_id, current, state, last_checkpoint_id,
+                run_id,
+                current,
+                state,
+                last_checkpoint_id,
             )
 
             current = self._resolve_next(current, state, traversal_counts)
 
         return self._result(
-            run_id, RunStatus.COMPLETED, state, history, traversal_counts,
+            run_id,
+            RunStatus.COMPLETED,
+            state,
+            history,
+            traversal_counts,
         )
 
     async def _save_checkpoint(
@@ -292,16 +313,12 @@ class GraphEngine:
         )
 
     @staticmethod
-    def _apply_output(
-        node: NodeSpec, state: dict[str, Any], output: dict[str, Any]
-    ) -> None:
+    def _apply_output(node: NodeSpec, state: dict[str, Any], output: dict[str, Any]) -> None:
         for key, value in output.items():
             if node.output_fields is None or key in node.output_fields:
                 state[key] = value
 
-    def _execute_node(
-        self, node: NodeSpec, state: dict[str, Any]
-    ) -> NodeResult:
+    def _execute_node(self, node: NodeSpec, state: dict[str, Any]) -> NodeResult:
         """Execute a single node with pre/post hooks."""
         started_at = datetime.now(UTC)
 
@@ -316,9 +333,7 @@ class GraphEngine:
 
         handler = self._handlers.get(node.handler)
         if handler is None:
-            return self._fail(
-                node.id, f"No handler registered for '{node.handler}'", started_at
-            )
+            return self._fail(node.id, f"No handler registered for '{node.handler}'", started_at)
 
         try:
             output = handler(projected)
@@ -356,9 +371,7 @@ class GraphEngine:
         )
 
     @staticmethod
-    def _project_input(
-        node: NodeSpec, state: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _project_input(node: NodeSpec, state: dict[str, Any]) -> dict[str, Any]:
         if node.input_projection:
             return {k: state[k] for k in node.input_projection if k in state}
         return state
@@ -413,8 +426,13 @@ class RunResult:
     """Result of a graph execution."""
 
     __slots__ = (
-        "run_id", "status", "state", "history",
-        "error", "paused_at_node", "traversal_counts",
+        "run_id",
+        "status",
+        "state",
+        "history",
+        "error",
+        "paused_at_node",
+        "traversal_counts",
     )
 
     def __init__(

@@ -95,9 +95,7 @@ async def test_list_by_run_returns_correct_checkpoints(
 ) -> None:
     now = datetime.now(UTC)
     cp1 = _make_checkpoint(run_id="run-A", node_id="n1", created_at=now)
-    cp2 = _make_checkpoint(
-        run_id="run-A", node_id="n2", created_at=now + timedelta(seconds=1)
-    )
+    cp2 = _make_checkpoint(run_id="run-A", node_id="n2", created_at=now + timedelta(seconds=1))
     cp_other = _make_checkpoint(run_id="run-B", node_id="n3")
 
     await store.save(cp1)
@@ -125,12 +123,8 @@ async def test_latest_by_graph_returns_most_recent(
     store: SQLiteCheckpointStore,
 ) -> None:
     now = datetime.now(UTC)
-    cp_old = _make_checkpoint(
-        graph_id="g1", run_id="r1", created_at=now - timedelta(seconds=10)
-    )
-    cp_new = _make_checkpoint(
-        graph_id="g1", run_id="r2", created_at=now
-    )
+    cp_old = _make_checkpoint(graph_id="g1", run_id="r1", created_at=now - timedelta(seconds=10))
+    cp_new = _make_checkpoint(graph_id="g1", run_id="r2", created_at=now)
     cp_other_graph = _make_checkpoint(
         graph_id="g2", run_id="r3", created_at=now + timedelta(seconds=5)
     )

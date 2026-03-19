@@ -127,21 +127,15 @@ class TestCLIResultModel:
 
 class TestCommandConstruction:
     def test_claude_command(self) -> None:
-        d = CLIDelegation(
-            cli=CLIType.CLAUDE, prompt="hello", working_directory="/tmp"
-        )
+        d = CLIDelegation(cli=CLIType.CLAUDE, prompt="hello", working_directory="/tmp")
         assert _build_command(d) == ["claude", "-p", "hello"]
 
     def test_codex_command(self) -> None:
-        d = CLIDelegation(
-            cli=CLIType.CODEX, prompt="fix bug", working_directory="/tmp"
-        )
+        d = CLIDelegation(cli=CLIType.CODEX, prompt="fix bug", working_directory="/tmp")
         assert _build_command(d) == ["codex", "exec", "fix bug"]
 
     def test_gemini_command(self) -> None:
-        d = CLIDelegation(
-            cli=CLIType.GEMINI, prompt="review", working_directory="/tmp"
-        )
+        d = CLIDelegation(cli=CLIType.GEMINI, prompt="review", working_directory="/tmp")
         assert _build_command(d) == ["gemini", "-p", "review"]
 
 
@@ -155,11 +149,10 @@ class TestRunCLI:
     async def test_successful_run(self) -> None:
         proc = _make_mock_process(stdout=b"output here", returncode=0)
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    return_value=proc) as mock_exec:
-            d = CLIDelegation(
-                cli=CLIType.CLAUDE, prompt="hi", working_directory="/tmp"
-            )
+        with patch(
+            "exocortex.agents.cli.asyncio.create_subprocess_exec", return_value=proc
+        ) as mock_exec:
+            d = CLIDelegation(cli=CLIType.CLAUDE, prompt="hi", working_directory="/tmp")
             result = await run_cli(d)
 
         mock_exec.assert_awaited_once()
@@ -171,11 +164,8 @@ class TestRunCLI:
     async def test_nonzero_exit_code(self) -> None:
         proc = _make_mock_process(stderr=b"failed", returncode=1)
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    return_value=proc):
-            d = CLIDelegation(
-                cli=CLIType.CODEX, prompt="bad", working_directory="/tmp"
-            )
+        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec", return_value=proc):
+            d = CLIDelegation(cli=CLIType.CODEX, prompt="bad", working_directory="/tmp")
             result = await run_cli(d)
 
         assert result.exit_code == 1
@@ -185,11 +175,8 @@ class TestRunCLI:
     async def test_cli_type_preserved_in_result(self) -> None:
         proc = _make_mock_process()
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    return_value=proc):
-            d = CLIDelegation(
-                cli=CLIType.GEMINI, prompt="x", working_directory="/tmp"
-            )
+        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec", return_value=proc):
+            d = CLIDelegation(cli=CLIType.GEMINI, prompt="x", working_directory="/tmp")
             result = await run_cli(d)
 
         assert result.cli == CLIType.GEMINI
@@ -208,8 +195,7 @@ class TestTimeout:
         proc.kill = MagicMock()
         proc.wait = AsyncMock(return_value=None)
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    return_value=proc):
+        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec", return_value=proc):
             d = CLIDelegation(
                 cli=CLIType.CLAUDE,
                 prompt="slow",
@@ -234,8 +220,7 @@ class TestOutputTruncation:
         big_output = b"x" * 2000
         proc = _make_mock_process(stdout=big_output)
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    return_value=proc):
+        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec", return_value=proc):
             d = CLIDelegation(
                 cli=CLIType.CLAUDE,
                 prompt="big",
@@ -251,8 +236,7 @@ class TestOutputTruncation:
         big_err = b"e" * 5000
         proc = _make_mock_process(stderr=big_err)
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    return_value=proc):
+        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec", return_value=proc):
             d = CLIDelegation(
                 cli=CLIType.CODEX,
                 prompt="err",
@@ -277,8 +261,7 @@ class TestCLIHandlerFactory:
     def test_handler_output_structure(self) -> None:
         proc = _make_mock_process(stdout=b"done", stderr=b"warn", returncode=0)
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    return_value=proc):
+        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec", return_value=proc):
             handler = cli_handler_factory(CLIType.CLAUDE, "Review {file}")
             state: dict[str, Any] = {
                 "file": "main.py",
@@ -300,16 +283,15 @@ class TestCLIHandlerFactory:
             calls.append(args)
             return proc
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    side_effect=_capture):
-            handler = cli_handler_factory(
-                CLIType.GEMINI, "Summarize {topic} in {language}"
+        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec", side_effect=_capture):
+            handler = cli_handler_factory(CLIType.GEMINI, "Summarize {topic} in {language}")
+            handler(
+                {
+                    "topic": "graphs",
+                    "language": "English",
+                    "working_directory": "/code",
+                }
             )
-            handler({
-                "topic": "graphs",
-                "language": "English",
-                "working_directory": "/code",
-            })
 
         # The prompt should have been formatted into the command
         assert len(calls) == 1
@@ -324,12 +306,13 @@ class TestCLIHandlerFactory:
             captured_kwargs.append(kwargs)
             return proc
 
-        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec",
-                    side_effect=_capture):
+        with patch("exocortex.agents.cli.asyncio.create_subprocess_exec", side_effect=_capture):
             handler = cli_handler_factory(CLIType.CODEX, "fix {bug}")
-            handler({
-                "bug": "null pointer",
-                "working_directory": "/my/project",
-            })
+            handler(
+                {
+                    "bug": "null pointer",
+                    "working_directory": "/my/project",
+                }
+            )
 
         assert captured_kwargs[0]["cwd"] == "/my/project"
