@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Callable, Mapping
 from copy import deepcopy
@@ -9,6 +10,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from exocortex.core.checkpoint import Checkpoint, SQLiteCheckpointStore
 from exocortex.core.conditions import evaluate_condition
 from exocortex.core.graph import EdgeType, Graph, NodeSpec, NodeType, RunBudget
 
@@ -53,7 +55,6 @@ class RunAccounting:
         self.started_at = datetime.now(UTC)
 
     def check_budget(self) -> str | None:
-        """Return error message if budget exceeded, None if OK."""
         if self.nodes_executed >= self.budget.max_nodes:
             return f"Node budget exceeded: {self.nodes_executed}/{self.budget.max_nodes}"
         if self.total_tokens >= self.budget.max_total_tokens:
@@ -89,11 +90,16 @@ HookHandler = Callable[[dict[str, Any], NodeSpec], dict[str, Any]]
 class GraphEngine:
     """Executes a graph definition, managing state and transitions."""
 
-    def __init__(self, graph: Graph) -> None:
+    def __init__(
+        self,
+        graph: Graph,
+        checkpoint_store: SQLiteCheckpointStore | None = None,
+    ) -> None:
         errors = graph.validate()
         if errors:
             raise ValueError(f"Invalid graph: {errors}")
         self.graph = graph
+        self.checkpoint_store = checkpoint_store
         self._handlers: dict[str, NodeHandler] = {}
         self._pre_hooks: list[HookHandler] = []
         self._post_hooks: list[HookHandler] = []
@@ -107,22 +113,11 @@ class GraphEngine:
     def add_post_hook(self, hook: HookHandler) -> None:
         self._post_hooks.append(hook)
 
+    # --- Sync API (wraps async) ---
+
     def run(self, initial_state: dict[str, Any] | None = None) -> RunResult:
         """Execute the graph synchronously."""
-        run_id = str(uuid.uuid4())
-        state = self.graph.state_schema.create_initial_state()
-        if initial_state:
-            state.update(initial_state)
-
-        assert self.graph.entry is not None
-        return self._execute_loop(
-            run_id=run_id,
-            state=state,
-            history=[],
-            start_node=self.graph.entry,
-            traversal_counts={},
-            nodes_already=0,
-        )
+        return asyncio.run(self.arun(initial_state))
 
     def resume(
         self,
@@ -131,9 +126,42 @@ class GraphEngine:
         history: list[NodeResult],
         from_node: str,
         approved: bool = True,
-        traversal_counts: dict[str, int] | None = None,
+        traversal_counts: dict[Any, int] | None = None,
     ) -> RunResult:
-        """Resume a paused run (e.g., after HITL approval)."""
+        """Resume a paused run synchronously."""
+        return asyncio.run(
+            self.aresume(run_id, state, history, from_node, approved, traversal_counts)
+        )
+
+    # --- Async API (primary) ---
+
+    async def arun(self, initial_state: dict[str, Any] | None = None) -> RunResult:
+        """Execute the graph asynchronously."""
+        run_id = str(uuid.uuid4())
+        state = self.graph.state_schema.create_initial_state()
+        if initial_state:
+            state.update(initial_state)
+
+        assert self.graph.entry is not None
+        return await self._execute_loop(
+            run_id=run_id,
+            state=state,
+            history=[],
+            start_node=self.graph.entry,
+            traversal_counts={},
+            nodes_already=0,
+        )
+
+    async def aresume(
+        self,
+        run_id: str,
+        state: dict[str, Any],
+        history: list[NodeResult],
+        from_node: str,
+        approved: bool = True,
+        traversal_counts: dict[Any, int] | None = None,
+    ) -> RunResult:
+        """Resume a paused run asynchronously."""
         if not approved:
             return RunResult(
                 run_id=run_id,
@@ -156,7 +184,7 @@ class GraphEngine:
                 traversal_counts=counts,
             )
 
-        return self._execute_loop(
+        return await self._execute_loop(
             run_id=run_id,
             state=state,
             history=history,
@@ -165,41 +193,39 @@ class GraphEngine:
             nodes_already=len(history),
         )
 
-    def _execute_loop(
+    # --- Core execution ---
+
+    async def _execute_loop(
         self,
         run_id: str,
         state: dict[str, Any],
         history: list[NodeResult],
         start_node: str,
-        traversal_counts: dict[str, int],
+        traversal_counts: dict[Any, int],
         nodes_already: int,
     ) -> RunResult:
-        """Core execution loop shared by run() and resume()."""
+        """Core execution loop."""
         accounting = RunAccounting(self.graph.run_budget, nodes_already)
         current: str | None = start_node
+        last_checkpoint_id: str | None = None
 
         while current is not None:
             node = self.graph.nodes[current]
 
             budget_err = accounting.check_budget()
             if budget_err:
-                return RunResult(
-                    run_id=run_id,
-                    status=RunStatus.BUDGET_EXCEEDED,
-                    state=state,
-                    history=history,
-                    error=budget_err,
-                    traversal_counts=traversal_counts,
+                return self._result(
+                    run_id, RunStatus.BUDGET_EXCEEDED, state,
+                    history, traversal_counts, error=budget_err,
                 )
 
             if node.node_type == NodeType.APPROVAL:
-                return RunResult(
-                    run_id=run_id,
-                    status=RunStatus.AWAITING_APPROVAL,
-                    state=state,
-                    history=history,
-                    paused_at_node=current,
-                    traversal_counts=traversal_counts,
+                await self._save_checkpoint(
+                    run_id, current, state, last_checkpoint_id,
+                )
+                return self._result(
+                    run_id, RunStatus.AWAITING_APPROVAL, state,
+                    history, traversal_counts, paused_at_node=current,
                 )
 
             result = self._execute_node(node, state)
@@ -207,24 +233,61 @@ class GraphEngine:
             accounting.record_node()
 
             if result.status == ResultStatus.FAILURE:
-                return RunResult(
-                    run_id=run_id,
-                    status=RunStatus.FAILED,
-                    state=state,
-                    history=history,
-                    error=f"Node '{current}' failed",
-                    traversal_counts=traversal_counts,
+                return self._result(
+                    run_id, RunStatus.FAILED, state, history,
+                    traversal_counts, error=f"Node '{current}' failed",
                 )
 
             self._apply_output(node, state, result.output)
 
+            # Checkpoint after each successful node
+            last_checkpoint_id = await self._save_checkpoint(
+                run_id, current, state, last_checkpoint_id,
+            )
+
             current = self._resolve_next(current, state, traversal_counts)
 
+        return self._result(
+            run_id, RunStatus.COMPLETED, state, history, traversal_counts,
+        )
+
+    async def _save_checkpoint(
+        self,
+        run_id: str,
+        node_id: str,
+        state: dict[str, Any],
+        parent_id: str | None,
+    ) -> str | None:
+        """Save a checkpoint if a store is configured. Returns checkpoint id."""
+        if self.checkpoint_store is None:
+            return None
+        cp = Checkpoint(
+            graph_id=self.graph.name,
+            run_id=run_id,
+            node_id=node_id,
+            state=deepcopy(state),
+            parent_id=parent_id,
+        )
+        await self.checkpoint_store.save(cp)
+        return cp.id
+
+    @staticmethod
+    def _result(
+        run_id: str,
+        status: RunStatus,
+        state: dict[str, Any],
+        history: list[NodeResult],
+        traversal_counts: dict[Any, int],
+        error: str | None = None,
+        paused_at_node: str | None = None,
+    ) -> RunResult:
         return RunResult(
             run_id=run_id,
-            status=RunStatus.COMPLETED,
+            status=status,
             state=state,
             history=history,
+            error=error,
+            paused_at_node=paused_at_node,
             traversal_counts=traversal_counts,
         )
 
@@ -232,7 +295,6 @@ class GraphEngine:
     def _apply_output(
         node: NodeSpec, state: dict[str, Any], output: dict[str, Any]
     ) -> None:
-        """Apply handler output to state, respecting output_fields."""
         for key, value in output.items():
             if node.output_fields is None or key in node.output_fields:
                 state[key] = value
@@ -315,9 +377,8 @@ class GraphEngine:
         self,
         current: str,
         state: dict[str, Any],
-        traversal_counts: dict[str, int],
+        traversal_counts: dict[Any, int],
     ) -> str | None:
-        """Determine the next node based on outgoing edges and state."""
         edges = self.graph.outgoing_edges(current)
         if not edges:
             return None
