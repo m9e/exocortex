@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -94,14 +94,14 @@ def _get_engine(request: Request, graph_name: str) -> GraphEngine:
     engines = request.app.state.engines
     if graph_name not in engines:
         raise HTTPException(404, f"Graph '{graph_name}' not registered")
-    return engines[graph_name]
+    return cast(GraphEngine, engines[graph_name])
 
 
 def _get_run(request: Request, run_id: str) -> tuple[str, RunResult]:
     runs = request.app.state.runs
     if run_id not in runs:
         raise HTTPException(404, f"Run '{run_id}' not found")
-    return runs[run_id]
+    return cast(tuple[str, RunResult], runs[run_id])
 
 
 # --- Routes ---

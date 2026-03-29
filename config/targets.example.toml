@@ -1,0 +1,32 @@
+[targets.openclaw]
+name = "openclaw"
+path = "/Users/matt/code/exocortex/openclaw"
+origin = "https://github.com/m9e/openclaw-exocortex.git"
+upstream = "https://github.com/openclaw/openclaw.git"
+branch = "main"
+runtime = "openclaw"
+proof_command = "pnpm openclaw doctor"
+health_command = "pnpm openclaw --help"
+state_root = ".local/instances/openclaw"
+
+[targets.gastown]
+name = "gastown"
+path = "/Users/matt/code/exocortex/gastown"
+origin = "https://github.com/m9e/gastown-exocortex.git"
+upstream = "https://github.com/steveyegge/gastown.git"
+branch = "main"
+runtime = "gastown"
+proof_command = "gt --help"
+health_command = "gt config agent list"
+state_root = ".local/instances/gastown"
+
+[targets.deerflow]
+name = "deerflow"
+path = "/Users/matt/code/exocortex/deer-flow"
+origin = "https://github.com/m9e/deer-flow-exocortex.git"
+upstream = "https://github.com/bytedance/deer-flow.git"
+branch = "main"
+runtime = "deerflow"
+proof_command = "make docker-init"
+health_command = "make check"
+state_root = ".local/instances/deerflow"

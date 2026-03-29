@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI
 
 from exocortex.api.routes.graphs import router as graphs_router
 from exocortex.api.routes.health import router as health_router
+from exocortex.api.routes.targets import router as targets_router
 from exocortex.core.checkpoint import SQLiteCheckpointStore
+from exocortex.targets.service import TargetService
 
 
 @asynccontextmanager
@@ -19,8 +20,10 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     db_path = Path.home() / ".exocortex" / "checkpoints.db"
     store = SQLiteCheckpointStore(db_path)
     app.state.checkpoint_store = store
-    app.state.engines: dict[str, Any] = {}
-    app.state.runs: dict[str, Any] = {}
+    app.state.engines = {}
+    app.state.runs = {}
+    repo_root = Path(__file__).resolve().parents[3]
+    app.state.target_service = TargetService(repo_root=repo_root)
     yield
     await store.close()
 
@@ -34,4 +37,5 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(graphs_router, prefix="/api")
+    app.include_router(targets_router)
     return app

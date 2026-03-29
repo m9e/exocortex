@@ -56,10 +56,10 @@ def evaluate_condition(condition: ConditionSpec, state: dict[str, Any]) -> bool:
     compare_value = condition.value
 
     if op is ConditionOp.EQ:
-        return field_value == compare_value
+        return bool(field_value == compare_value)
 
     if op is ConditionOp.NEQ:
-        return field_value != compare_value
+        return bool(field_value != compare_value)
 
     if op is ConditionOp.IS_TRUE:
         return bool(field_value) is True
@@ -69,13 +69,13 @@ def evaluate_condition(condition: ConditionSpec, state: dict[str, Any]) -> bool:
 
     if op is ConditionOp.IN:
         try:
-            return field_value in compare_value
+            return bool(field_value in compare_value)
         except TypeError:
             return False
 
     if op is ConditionOp.NOT_IN:
         try:
-            return field_value not in compare_value
+            return bool(field_value not in compare_value)
         except TypeError:
             return False
 
@@ -83,25 +83,25 @@ def evaluate_condition(condition: ConditionSpec, state: dict[str, Any]) -> bool:
     # Return False on incompatible types rather than raising.
     if op is ConditionOp.GT:
         try:
-            return field_value > compare_value
+            return bool(field_value > compare_value)
         except TypeError:
             return False
 
     if op is ConditionOp.GTE:
         try:
-            return field_value >= compare_value
+            return bool(field_value >= compare_value)
         except TypeError:
             return False
 
     if op is ConditionOp.LT:
         try:
-            return field_value < compare_value
+            return bool(field_value < compare_value)
         except TypeError:
             return False
 
     if op is ConditionOp.LTE:
         try:
-            return field_value <= compare_value
+            return bool(field_value <= compare_value)
         except TypeError:
             return False
 

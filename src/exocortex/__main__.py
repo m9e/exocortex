@@ -1,10 +1,6 @@
-"""Entry point: python -m exocortex"""
+"""Entry point for the exocortex CLI and API service."""
 
-import uvicorn
-
-from exocortex.api.app import create_app
-
-app = create_app()
+from exocortex.targets.cli import main
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8900)
+    raise SystemExit(main())
