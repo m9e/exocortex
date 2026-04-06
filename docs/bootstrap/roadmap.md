@@ -5,6 +5,7 @@
 Bootstrap the initial worker-fabric control plane around exocortex without polluting parent git state or collapsing the upstream runtimes into this repo.
 
 Manual baby-step validation is tracked in [manual-validation.md](/Users/matt/code/exocortex/exocortex/docs/bootstrap/manual-validation.md).
+Target-specific proof-of-life guides live in [docs/howto/README.md](/Users/matt/code/exocortex/exocortex/docs/howto/README.md).
 
 ## Phase 1
 
